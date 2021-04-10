@@ -15,3 +15,5 @@ func Emit(out io.Writer, words int) error
 ```
 
 Additional text can be fed to the engine even if `Emit` has already been called.
+
+Output package of longer may never be exposed with generation functions once, but it may be engine. 
