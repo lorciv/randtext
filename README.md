@@ -11,7 +11,7 @@ func Feed(in io.Reader) error
 Once the random source has been initialized with some text, function `Generate` allows to generate new random text. The caller can specify the desired number of words: the output will contain at most the given number of words.
 
 ```go
-func Emit(out io.Writer, words int) error
+func Generate(out io.Writer, words int) error
 ```
 
 Additional text can be fed to the engine even if `Generate` has already been called.
