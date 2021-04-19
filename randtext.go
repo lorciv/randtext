@@ -7,77 +7,102 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-	"os"
 	"strings"
-	"text/tabwriter"
 )
 
-var suffixTable = make(map[string][]string)
+type prefix []string
 
-// Feed reads the text coming from the specified Reader and feeds it to the random text engine.
-func Feed(in io.Reader) error {
-	var words []string
+func (p prefix) shift(word string) {
+	copy(p, p[1:])
+	p[len(p)-1] = word
+}
+
+func (p prefix) string() string {
+	return strings.Join(p, " ")
+}
+
+// Rand is a source of random text.
+type Rand struct {
+	stateTab  map[string][]string
+	prefixLen int
+}
+
+// New returns a new Rand with given prefix length.
+func New(prefixLen int) *Rand {
+	return &Rand{
+		stateTab:  make(map[string][]string),
+		prefixLen: prefixLen,
+	}
+}
+
+// Feed feeds the random source with text coming from the specified Reader.
+func (r *Rand) Feed(in io.Reader) error {
 	scan := bufio.NewScanner(in)
 	scan.Split(bufio.ScanWords)
+	pref := make(prefix, r.prefixLen)
 	for scan.Scan() {
-		words = append(words, scan.Text())
+		word := scan.Text()
+		key := pref.string()
+		r.stateTab[key] = append(r.stateTab[key], word)
+		pref.shift(word)
 	}
 	if err := scan.Err(); err != nil {
-		return err
+		return fmt.Errorf("could not read text to feed: %v", err)
 	}
-
-	// prefix of fixed length 2 for simplicity
-	for i := 0; i < len(words)-2; i++ {
-		p := strings.Join(words[i:i+2], " ")
-		suffixTable[p] = append(suffixTable[p], words[i+2])
-	}
-
 	return nil
 }
 
-// Emit emits random text to the specified Writer. It makes use of the input previously fed to the engine
-// to generate text that reads well. Output text contains at most the given number of words.
-func Emit(out io.Writer, words int) error {
-	if len(suffixTable) == 0 {
-		return errors.New("cannot emit: some text must be fed first")
+// Generate generates random text to the specified Writer.
+//
+// It makes use of the input previously fed to the source to generate text that reads well. Output text
+// contains at most the given number of words.
+func (r *Rand) Generate(out io.Writer, words int) error {
+	if len(r.stateTab) == 0 {
+		return errors.New("could not generate: no text has been fed")
 	}
 
-	var pref []string
-	for p := range suffixTable {
-		pref = strings.Fields(p) // randomly select start prefix to improve randomness
-	}
-	if _, err := fmt.Fprintf(out, "%s %s", strings.Title(pref[0]), pref[1]); err != nil {
-		return err
-	}
-
+	pref := make(prefix, r.prefixLen)
 	for i := 0; i < words; i++ {
-		s := suffixTable[strings.Join(pref, " ")]
-		if len(s) == 0 {
+		choices := r.stateTab[pref.string()]
+		if len(choices) == 0 {
 			break
 		}
-		word := s[rand.Intn(len(s))]
-
-		if _, err := fmt.Fprintf(out, " %s", word); err != nil {
-			return err
+		next := choices[rand.Intn(len(choices))]
+		if _, err := fmt.Fprintf(out, " %s", next); err != nil {
+			return fmt.Errorf("could not generate: %v", err)
 		}
-
-		pref[0], pref[1] = pref[1], word
-	}
-
-	if _, err := fmt.Fprint(out, "\n"); err != nil {
-		return err
+		pref.shift(next)
 	}
 
 	return nil
 }
 
-func print() {
-	const format = "%v\t%v\t\n"
-	tw := new(tabwriter.Writer).Init(os.Stderr, 0, 8, 2, '\t', 0)
-	fmt.Fprintf(tw, format, "PREFIX", "SUFFIX")
-	fmt.Fprintf(tw, format, "------", "------")
-	for p, s := range suffixTable {
-		fmt.Fprintf(tw, format, p, s)
-	}
-	tw.Flush()
+/*
+ * Top-level convenience functions
+ */
+
+var globalRand = New(2)
+
+// Feed feeds the default random source with text coming from the specified Reader.
+func Feed(in io.Reader) error {
+	return globalRand.Feed(in)
 }
+
+// Generate generates random text from the default source to the specified Writer.
+//
+// It makes use of the input previously fed to the default source to generate text that reads well.
+// Output text contains at most the given number of words.
+func Generate(out io.Writer, words int) error {
+	return globalRand.Generate(out, words)
+}
+
+// func print() {
+// 	const format = "%v\t%v\t\n"
+// 	tw := new(tabwriter.Writer).Init(os.Stderr, 0, 8, 2, '\t', 0)
+// 	fmt.Fprintf(tw, format, "PREFIX", "SUFFIX")
+// 	fmt.Fprintf(tw, format, "------", "------")
+// 	for p, s := range globalRand.stateTab {
+// 		fmt.Fprintf(tw, format, p, s)
+// 	}
+// 	tw.Flush()
+// }

@@ -47,7 +47,7 @@ func main() {
 		}
 	}
 
-	if err := randtext.Emit(os.Stdout, *numWords); err != nil {
+	if err := randtext.Generate(os.Stdout, *numWords); err != nil {
 		log.Fatal(err)
 	}
 }
